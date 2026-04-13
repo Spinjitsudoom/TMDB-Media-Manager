@@ -1,4 +1,4 @@
-# 📺 Media Manager Ultimate v1.9.6
+# 📺 Media Manager Ultimate v1.9.7
 **Automated TV Show Renaming for Plex, Jellyfin, and Emby**
 
 Media Manager Ultimate is a Python-based GUI utility that organizes your media library by syncing your local files with **The Movie Database (TMDb)**. It ensures your shows are named perfectly so that media servers like Plex and Jellyfin can fetch metadata, posters, and episode summaries without errors.
