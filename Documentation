@@ -1,0 +1,48 @@
+# 🎬 Media Manager Ultimate v1.9.6
+**Automated TV Show Renaming Utility powered by TMDb**
+
+## 📌 Project Overview
+Media Manager Ultimate is a robust Python-based GUI tool designed to automate the renaming of media files. By integrating with **The Movie Database (TMDb)**, it fetches accurate episode metadata and applies consistent naming conventions to your local media library.
+
+---
+
+## 🛠 Core Features
+* **Dual Renaming Modes:**
+    * **Numeric Matching:** Syncs files sequentially based on their folder order (ideal for freshly ripped seasons).
+    * **Title (Fuzzy) Matching:** Uses `thefuzz` string matching to pair existing filenames with TMDb episode titles, even if the files are out of order.
+* **Full Theme Engine:** A unified styling system across 9 themes (Slate, Emerald, Midnight, etc.).
+* **Intelligent UI:** Automatically styles nested frames, radio buttons, and pop-up windows to ensure a zero-glare dark mode experience.
+* **Real-time Preview:** Validation area showing "Old Name -> New Name" transformations before any changes are written to the disk.
+* **Custom Naming Patterns:** User-definable separators (e.g., `-`, `_`, or `Ep_`).
+
+---
+
+## 📂 System Architecture
+
+### 1. `media_dashboard.py` (Main Entry)
+The primary controller. Manages the Tkinter lifecycle, grid layouts, and the "Match Mode" radio button logic.
+
+### 2. `tmdb_engine.py` (The Brain)
+Handles all external API calls.
+* **Logic:** Uses `thefuzz.process.extractOne` for title matching.
+* **Formatting:** Ensures sequential numbering is zero-padded (e.g., `01`, `02`) for better OS sorting.
+
+### 3. `themes.py` (The Stylist)
+The centralized theme repository.
+* **Manual Paint Logic:** A recursive function that traverses the UI tree to fix standard `tk` widgets that don't support `ttk` styles.
+* **Option Database:** Uses `root.option_add` to set global defaults for new dialogs.
+
+### 4. `settings_manager.py` (Persistence)
+Manages the `config.json` file to remember your default media paths, last used theme, and naming patterns.
+
+---
+
+## 🚀 Installation & Usage
+
+### Prerequisites
+- Python 3.8+
+- A TMDb API Key
+
+### Dependencies
+```bash
+pip install tmdbv3api thefuzz python-Levenshtein
