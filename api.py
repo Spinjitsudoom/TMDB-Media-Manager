@@ -29,11 +29,7 @@ app.add_middleware(
 )
 
 def _data_dir() -> Path:
-    if os.environ.get("FLATPAK_ID"):
-        base = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
-        d = base / "Matchbox"
-    else:
-        d = Path.home() / "Documents" / "Matchbox"
+    d = Path.home() / "Documents" / "Matchbox"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

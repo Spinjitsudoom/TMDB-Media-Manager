@@ -11,21 +11,13 @@ let backend = null;
 let mainWindow = null;
 let logStream = null;
 
-function getDataDir() {
-  if (process.env.FLATPAK_ID) {
-    const xdg = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-    return path.join(xdg, 'Matchbox');
-  }
-  return path.join(os.homedir(), 'Documents', 'Matchbox');
-}
-
 function getLogPath() {
-  return path.join(getDataDir(), 'backend.log');
+  return path.join(os.homedir(), 'Documents', 'Matchbox', 'backend.log');
 }
 
 function openLog() {
   try {
-    const logDir = getDataDir();
+    const logDir = path.join(os.homedir(), 'Documents', 'Matchbox');
     fs.mkdirSync(logDir, { recursive: true });
     logStream = fs.createWriteStream(getLogPath(), { flags: 'a' });
     logStream.write(`\n--- Matchbox started ${new Date().toISOString()} ---\n`);
