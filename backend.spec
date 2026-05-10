@@ -69,6 +69,10 @@ a = Analysis(
     optimize=0,
 )
 
+# Exclude host libgcc_s.so.1 — bundled version requires GLIBC_ABI_GNU2_TLS which
+# the Flatpak runtime (freedesktop 24.08) doesn't have; let the runtime provide it.
+a.binaries = [b for b in a.binaries if not b[0].startswith('libgcc_s')]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
