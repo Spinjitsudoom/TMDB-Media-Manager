@@ -2,6 +2,11 @@
   "name": "matchbox",
   "private": true,
   "version": "1.0.0",
+  "description": "Automated TV show and movie renaming for Plex, Jellyfin, and Emby",
+  "author": {
+    "name": "Etienne Axiak",
+    "email": "etienneaxiakgalaxy@gmail.com"
+  },
   "repository": "https://github.com/Spinjitsudoom/Matchbox",
   "type": "module",
   "main": "electron/main.cjs",
@@ -14,7 +19,7 @@
     "dist": "npm run build && electron-builder"
   },
   "build": {
-    "appId": "com.matchbox.app",
+    "appId": "io.github.Spinjitsudoom.Matchbox",
     "productName": "Matchbox",
     "directories": {
       "output": "/tmp/electron-output"
