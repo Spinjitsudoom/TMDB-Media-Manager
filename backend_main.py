@@ -13,7 +13,11 @@ if getattr(sys, 'frozen', False):
 import logging
 from pathlib import Path
 
-log_dir = Path.home() / "Documents" / "Matchbox"
+if os.environ.get("FLATPAK_ID"):
+    _base = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    log_dir = _base / "Matchbox"
+else:
+    log_dir = Path.home() / "Documents" / "Matchbox"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_file = log_dir / "backend.log"
 
