@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { Settings, Tv, Clapperboard } from 'lucide-react';
+import { Settings, Tv, Clapperboard, ArrowUpCircle } from 'lucide-react';
 import { LibraryPanel } from './components/LibraryPanel';
 import { SearchPanel } from './components/SearchPanel';
 import { ShowInfoPanel } from './components/ShowInfoPanel';
 import { MovieInfoPanel } from './components/MovieInfoPanel';
 import { RenamePanel } from './components/RenamePanel';
 import { SettingsModal } from './components/SettingsModal';
-import { getSeason, getConfig, saveConfig } from './api/client';
-import type { ShowDetails, SeasonInfo, SeasonDetails, SeasonFolder, MovieDetails } from './api/client';
+import { FirstRunSetup } from './components/FirstRunSetup';
+import { getSeason, getConfig, saveConfig, getMatchHistory, saveMatchHistory, checkUpdates, getMovie, getShow } from './api/client';
+import type { ShowDetails, SeasonInfo, SeasonDetails, SeasonFolder, MovieDetails, Config } from './api/client';
 import { ThemeContext, THEMES } from './ThemeContext';
 import type { Theme } from './ThemeContext';
+import { injectCustomThemeCss } from './customThemes';
 
 function parseSeasonNum(name: string): number | null {
   const m = name.match(/season[\s._-]*(\d+)/i)
@@ -26,8 +28,11 @@ function folderForSeason(folders: SeasonFolder[], num: number): SeasonFolder | n
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
+  const [showFirstRun, setShowFirstRun] = useState(false);
+  const [config, setConfig] = useState<Config | null>(null);
   const [pattern, setPattern] = useState(' - ');
   const [theme, setThemeState] = useState<Theme>('Slate');
+  const [updateAvailable, setUpdateAvailable] = useState<{ tag: string; url: string } | null>(null);
 
   // Media type
   const [mediaType, setMediaType] = useState<'tv' | 'movie'>('tv');
@@ -53,8 +58,21 @@ export default function App() {
 
   useEffect(() => {
     getConfig().then(c => {
+      setConfig(c);
       setPattern(c.pattern);
+      c.custom_themes?.forEach((t, i) => injectCustomThemeCss((i + 1) as 1 | 2 | 3, t));
       if (c.theme && THEMES.includes(c.theme as Theme)) applyTheme(c.theme as Theme);
+      const hasPath = (c.tv_path?.trim() && c.tv_path !== '/') || (c.movie_path?.trim() && c.movie_path !== '/') || (c.path?.trim() && c.path !== '/');
+      if (!c.api_key?.trim() || !hasPath) setShowFirstRun(true);
+    }).catch(() => {});
+    checkUpdates().then(u => {
+      const current = '1.0.1-test.15';
+      // Only show update badge on stable builds, not test/dev builds
+      if (u.latest_tag && u.url && !current.includes('test') && !current.includes('dev')) {
+        if (u.latest_tag !== current && u.latest_tag !== `v${current}`) {
+          setUpdateAvailable({ tag: u.latest_tag, url: u.url });
+        }
+      }
     }).catch(() => {});
   }, []);
 
@@ -80,6 +98,25 @@ export default function App() {
   // ── Folder → TMDB season (TV mode) ────────────────────────────────────────
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
+    // Try to restore a previously saved match for this folder
+    getMatchHistory(path).then(h => {
+      if (!h?.id) return;
+      if (h.type === 'tv') {
+        getShow(h.id).then(({ details, seasons: s }) => {
+          setShowId(h.id); setShowDetails(details); setSeasons(s);
+          setMovieId(null); setMovieDetails(null);
+          if (h.season_num != null) {
+            setSelectedSeason(h.season_num);
+            getSeason(h.id, h.season_num).then(d => setSeasonDetails(d.details)).catch(() => {});
+          }
+        }).catch(() => {});
+      } else if (h.type === 'movie') {
+        getMovie(h.id).then(details => {
+          setMovieId(h.id); setMovieDetails(details);
+          setShowId(null); setShowDetails(null); setSeasons([]);
+        }).catch(() => {});
+      }
+    }).catch(() => {});
     if (mediaType !== 'tv' || suppressFolderLink.current) return;
     const folderName = path.split('/').pop() ?? '';
     const num = parseSeasonNum(folderName);
@@ -181,6 +218,17 @@ export default function App() {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
+            {updateAvailable && (
+              <button
+                onClick={() => window.open(updateAvailable.url)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-xs"
+                style={{ color: '#fb923c', background: 'rgba(251,146,60,0.1)' }}
+                title={`Update available: ${updateAvailable.tag}`}
+              >
+                <ArrowUpCircle size={13} />
+                {updateAvailable.tag}
+              </button>
+            )}
             <button
               onClick={() => setShowSettings(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-xs hover:bg-surface-700"
@@ -203,6 +251,11 @@ export default function App() {
               }}
               onSeasonFoldersLoaded={setSeasonFolders}
               selectedPath={selectedFolder}
+              rootPath={config
+                ? (mediaType === 'tv'
+                    ? (config.tv_path || config.path || '')
+                    : (config.movie_path || config.path || ''))
+                : ''}
             />
           </aside>
 
@@ -215,6 +268,14 @@ export default function App() {
               seasonDetails={seasonDetails}
               movieDetails={movieDetails}
               pattern={pattern}
+              onRenameSuccess={() => {
+                if (!selectedFolder) return;
+                if (mediaType === 'tv' && showId && showDetails) {
+                  saveMatchHistory({ folder_path: selectedFolder, type: 'tv', id: showId, name: showDetails.name, season_num: selectedSeason ?? undefined }).catch(() => {});
+                } else if (mediaType === 'movie' && movieId && movieDetails) {
+                  saveMatchHistory({ folder_path: selectedFolder, type: 'movie', id: movieId, name: movieDetails.title }).catch(() => {});
+                }
+              }}
             />
           </main>
 
@@ -240,10 +301,29 @@ export default function App() {
           <SettingsModal onClose={() => {
             setShowSettings(false);
             getConfig().then(c => {
+              setConfig(c);
               setPattern(c.pattern);
               if (c.theme && THEMES.includes(c.theme as Theme)) applyTheme(c.theme as Theme);
             }).catch(() => {});
           }} />
+        )}
+
+        {showFirstRun && config && (
+          <FirstRunSetup
+            initialApiKey={config.api_key}
+            initialTvPath={config.tv_path || config.path || ''}
+            initialMoviePath={config.movie_path || config.path || ''}
+            initialPattern={config.pattern}
+            onComplete={() => {
+              setShowFirstRun(false);
+              getConfig().then(c => {
+                setConfig(c);
+                setPattern(c.pattern);
+                if (c.theme && THEMES.includes(c.theme as Theme)) applyTheme(c.theme as Theme);
+              }).catch(() => {});
+            }}
+            onSkip={() => setShowFirstRun(false)}
+          />
         )}
       </div>
     </ThemeContext.Provider>

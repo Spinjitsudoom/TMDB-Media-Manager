@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Captions, CheckSquare, Square, Loader2, CheckCircle2, XCircle, AlertCircle, Minimize2 } from 'lucide-react';
-import { getFiles, checkWhisper } from '../api/client';
+import { getFiles, checkWhisper, getAudioTracks, getPresets, getConfig } from '../api/client';
+import type { FileAudioTracks, Preset } from '../api/client';
 
 interface ProgressItem {
   file: string;
   out?: string;
   status: 'pending' | 'loading_model' | 'running' | 'done' | 'error';
   error?: string;
+  progress?: number;
 }
 
 interface Props {
@@ -16,22 +18,6 @@ interface Props {
   onBackground: () => void;
   onComplete: (done: number, errors: number) => void;
 }
-
-const MODELS = ['tiny', 'base', 'small', 'medium', 'large'] as const;
-
-const LANGUAGES: { code: string; label: string }[] = [
-  { code: '', label: 'Auto-detect' },
-  { code: 'en', label: 'English' },
-  { code: 'ja', label: 'Japanese' },
-  { code: 'zh', label: 'Chinese' },
-  { code: 'ko', label: 'Korean' },
-  { code: 'fr', label: 'French' },
-  { code: 'de', label: 'German' },
-  { code: 'es', label: 'Spanish' },
-  { code: 'pt', label: 'Portuguese' },
-  { code: 'it', label: 'Italian' },
-  { code: 'ru', label: 'Russian' },
-];
 
 export function SubtitleModal({ folderPath, visible, onClose, onBackground, onComplete }: Props) {
   const [files, setFiles] = useState<string[]>([]);
@@ -43,12 +29,28 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
   const [vad, setVad] = useState(true);
   const [beamSize, setBeamSize] = useState(5);
   const [prompt, setPrompt] = useState('');
+  const [audioTrack, setAudioTrack] = useState<number | null>(null);
+  const [maxAudioTracks, setMaxAudioTracks] = useState(0);
+  const [fileAudioData, setFileAudioData] = useState<FileAudioTracks[]>([]);
+  const [loadingAudioTracks, setLoadingAudioTracks] = useState(false);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
   const [running, setRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+
+  useEffect(() => {
+    getPresets('subtitles').then(setPresets).catch(() => {});
+    getConfig().then(c => {
+      setModel(c.whisper_model || 'base');
+      setLanguage(c.whisper_language || '');
+      setBeamSize(c.whisper_beam_size ?? 5);
+      setVad(c.whisper_vad ?? true);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -59,11 +61,17 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
       setSelected(new Set(list));
       setWhisperOk(wCheck.available);
       setLoadingFiles(false);
+      if (list.length > 0) {
+        setLoadingAudioTracks(true);
+        getAudioTracks(folderPath, list)
+          .then(r => { setMaxAudioTracks(r.max_audio_tracks); setFileAudioData(r.files); })
+          .catch(() => {})
+          .finally(() => setLoadingAudioTracks(false));
+      }
     });
     return () => { abortRef.current?.abort(); };
   }, [folderPath]);
 
-  // When job finishes while backgrounded, notify parent and close
   useEffect(() => {
     if (isDone && !running && !visibleRef.current) {
       const done = progress.filter(p => p.status === 'done').length;
@@ -107,6 +115,7 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
           vad_filter: vad,
           beam_size: beamSize,
           initial_prompt: prompt || null,
+          audio_track: audioTrack,
         }),
       });
 
@@ -153,16 +162,42 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
     }
   };
 
+  const audioTrackLabel = (pos: number): string => {
+    const tracks = fileAudioData.map(f => f.tracks[pos - 1]).filter(Boolean);
+    const lang = tracks.map(t => t.language).find(Boolean);
+    const title = tracks.map(t => t.title).find(Boolean);
+    const suffix = [lang, title].filter(Boolean).join(' · ');
+    return suffix ? `Track ${pos} — ${suffix}` : `Track ${pos}`;
+  };
+
+  const handleLoadPreset = (id: string) => {
+    setSelectedPresetId(id);
+    const p = presets.find(p => p.id === id);
+    if (!p) return;
+    const s = p.settings;
+    if (typeof s.model === 'string') setModel(s.model);
+    if (typeof s.language === 'string') setLanguage(s.language);
+    setVad(Boolean(s.vad_filter ?? s.vad));
+    if (typeof s.beam_size === 'number') setBeamSize(s.beam_size);
+    if (typeof s.prompt === 'string') setPrompt(s.prompt);
+    setAudioTrack(typeof s.audio_track === 'number' ? s.audio_track : null);
+  };
+
   const selectedCount = files.filter(f => selected.has(f)).length;
   const completedCount = progress.filter(p => p.status === 'done' || p.status === 'error').length;
   const isLoadingModel = running && progress.length > 0 && completedCount === 0 &&
     progress.some(p => p.status === 'loading_model');
+  const barProgress = progress.length === 0 ? 0 : progress.reduce((sum, p) => {
+    if (p.status === 'done' || p.status === 'error') return sum + 1;
+    if (p.status === 'running' && p.progress != null) return sum + p.progress / 100;
+    return sum;
+  }, 0) / progress.length * 100;
 
   if (!visible) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.72)' }}>
-      <div className="rounded-xl border shadow-2xl w-full max-w-lg flex flex-col" style={{ background: 'var(--bg-800)', borderColor: 'var(--border)', maxHeight: '85vh' }}>
+      <div className="rounded-xl border shadow-2xl w-full max-w-xl flex flex-col" style={{ background: 'var(--bg-800)', borderColor: 'var(--border)', maxHeight: '85vh' }}>
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-3.5 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
@@ -198,63 +233,26 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
         {/* Config rows */}
         {!running && !isDone && (
           <div className="border-b shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--bg-700)' }}>
-            {/* Row 1: model + language */}
+            {/* Row 1: audio track */}
             <div className="flex items-center gap-3 px-5 py-2.5 flex-wrap">
-              <span className="text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>Model</span>
-              <div className="flex gap-1">
-                {MODELS.map(m => (
-                  <button key={m} onClick={() => setModel(m)}
-                    className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
-                    style={{
-                      background: model === m ? 'var(--accent-600)' : 'var(--bg-500)',
-                      color: model === m ? '#fff' : 'var(--text-secondary)',
-                    }}>
-                    {m}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-1.5 ml-auto">
-                <span className="text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>Language</span>
-                <select
-                  value={language}
-                  onChange={e => setLanguage(e.target.value)}
-                  className="rounded px-2 py-0.5 text-xs border focus:outline-none"
-                  style={{ background: 'var(--bg-600)', borderColor: 'var(--bg-400)', color: 'var(--text-primary)' }}
-                >
-                  {LANGUAGES.map(l => (
-                    <option key={l.code} value={l.code}>{l.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {/* Row 2: beam size + VAD */}
-            <div className="flex items-center gap-3 px-5 py-2 border-t flex-wrap" style={{ borderColor: 'var(--border)' }}>
-              <span className="text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>Beam</span>
-              <div className="flex gap-1">
-                {[1, 5, 10].map(b => (
-                  <button key={b} onClick={() => setBeamSize(b)}
-                    className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
-                    style={{
-                      background: beamSize === b ? 'var(--accent-600)' : 'var(--bg-500)',
-                      color: beamSize === b ? '#fff' : 'var(--text-secondary)',
-                    }}>
-                    {b}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={() => setVad(v => !v)}
-                className="flex items-center gap-1.5 ml-auto px-2.5 py-1 rounded text-xs font-medium transition-colors"
-                style={{
-                  background: vad ? 'var(--accent-600)' : 'var(--bg-500)',
-                  color: vad ? '#fff' : 'var(--text-secondary)',
-                }}
-                title="Voice Activity Detection — filters out hallucinated text during music and silence"
+              <span className="text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>Audio track</span>
+              <select
+                value={audioTrack ?? ''}
+                onChange={e => setAudioTrack(e.target.value ? Number(e.target.value) : null)}
+                disabled={loadingAudioTracks || maxAudioTracks === 0}
+                className="rounded px-2 py-0.5 text-xs border focus:outline-none disabled:opacity-50"
+                style={{ background: 'var(--bg-600)', borderColor: 'var(--bg-400)', color: 'var(--text-primary)', minWidth: 160 }}
               >
-                VAD filter
-              </button>
+                <option value="">{loadingAudioTracks ? 'Checking...' : 'Auto (default)'}</option>
+                {Array.from({ length: maxAudioTracks }, (_, i) => i + 1).map(pos => (
+                  <option key={pos} value={pos}>{audioTrackLabel(pos)}</option>
+                ))}
+              </select>
+              <span className="text-xs ml-auto" style={{ color: 'var(--text-muted)' }}>
+                {model}{language ? ` · ${language}` : ''} · beam {beamSize}{vad ? ' · VAD' : ''}
+              </span>
             </div>
-            {/* Row 3: initial prompt */}
+            {/* Row 2: initial prompt */}
             <div className="flex items-center gap-3 px-5 py-2 border-t" style={{ borderColor: 'var(--border)' }}>
               <span className="text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>Prompt</span>
               <input
@@ -265,6 +263,19 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
                 className="flex-1 rounded px-2.5 py-1 text-xs border focus:outline-none"
                 style={{ background: 'var(--bg-600)', borderColor: 'var(--bg-400)', color: 'var(--text-primary)' }}
               />
+            </div>
+            {/* Preset row */}
+            <div className="flex items-center gap-2 px-5 py-2 border-t" style={{ borderColor: 'var(--border)' }}>
+              <span className="text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>Presets</span>
+              <select
+                value={selectedPresetId}
+                onChange={e => handleLoadPreset(e.target.value)}
+                className="rounded px-2 py-0.5 text-xs border focus:outline-none flex-1"
+                style={{ background: 'var(--bg-600)', borderColor: 'var(--bg-400)', color: 'var(--text-primary)' }}
+              >
+                <option value="">{presets.length === 0 ? 'No presets — manage in Settings' : 'Load a preset…'}</option>
+                {presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
           </div>
         )}
@@ -277,7 +288,7 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
                 <div className="h-1.5 w-full animate-pulse" style={{ background: 'var(--accent-500)', opacity: 0.5 }} />
               ) : (
                 <div className="h-1.5 transition-all duration-500 rounded-r"
-                  style={{ width: `${Math.max(2, (completedCount / progress.length) * 100)}%`, background: 'var(--accent-500)' }} />
+                  style={{ width: `${Math.max(2, barProgress)}%`, background: 'var(--accent-500)' }} />
               )}
             </div>
             <div className="flex items-center justify-between px-5 py-1">
@@ -285,7 +296,7 @@ export function SubtitleModal({ folderPath, visible, onClose, onBackground, onCo
                 {isLoadingModel ? 'Loading model…' : `${completedCount} / ${progress.length} files`}
               </span>
               <span className="text-xs font-mono font-medium" style={{ color: 'var(--accent-400)' }}>
-                {isLoadingModel ? '—' : `${Math.round((completedCount / progress.length) * 100)}%`}
+                {isLoadingModel ? '—' : `${Math.round(barProgress)}%`}
               </span>
             </div>
           </div>

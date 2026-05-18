@@ -8,20 +8,26 @@ interface Props {
   onShowExpanded: (name: string, path: string) => void;
   onSeasonFoldersLoaded: (folders: SeasonFolder[]) => void;
   selectedPath: string | null;
+  rootPath: string;
 }
 
-export function LibraryPanel({ onSelectFolder, onShowExpanded, onSeasonFoldersLoaded, selectedPath }: Props) {
+export function LibraryPanel({ onSelectFolder, onShowExpanded, onSeasonFoldersLoaded, selectedPath, rootPath }: Props) {
   const [shows, setShows] = useState<LibraryEntry[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [seasons, setSeasons] = useState<Record<string, SeasonFolder[]>>({});
   const [loading, setLoading] = useState(false);
 
-  const refresh = () => {
+  const refresh = (path: string) => {
     setLoading(true);
-    getLibrary().then(setShows).catch(() => {}).finally(() => setLoading(false));
+    getLibrary(path || undefined).then(setShows).catch(() => {}).finally(() => setLoading(false));
   };
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    setExpanded(null);
+    setSeasons({});
+    onSeasonFoldersLoaded([]);
+    refresh(rootPath);
+  }, [rootPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = async (entry: LibraryEntry) => {
     if (expanded === entry.path) {
@@ -43,7 +49,7 @@ export function LibraryPanel({ onSelectFolder, onShowExpanded, onSeasonFoldersLo
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
         <span className="text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>Library</span>
-        <button onClick={refresh} title="Refresh" style={{ color: 'var(--text-muted)' }} className="hover:opacity-80 transition-opacity">
+        <button onClick={() => refresh(rootPath)} title="Refresh" style={{ color: 'var(--text-muted)' }} className="hover:opacity-80 transition-opacity">
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>

@@ -124,7 +124,11 @@ class TMDBEngine:
             return {}
 
     def _sanitize_title(self, title):
-        return "".join(c for c in title if c not in r'\/*?:"<>|').strip()
+        cleaned = "".join(c for c in title if c not in r'\/*?:"<>|').strip()
+        # Apply title case if any word starts lowercase (handles sentence-case and all-lowercase TMDB titles)
+        if cleaned and any(w and w[0].islower() for w in cleaned.split()):
+            cleaned = cleaned.title()
+        return cleaned
 
     def generate_preview(self, show_id, season_num, f_start, f_offset, pattern, season_path):
         try:

@@ -3,11 +3,12 @@ import {
   FileEdit, Undo2, ChevronUp, ChevronDown,
   ArrowRight, ToggleLeft, ToggleRight, Loader2, AlertCircle, Film, Captions
 } from 'lucide-react';
-import { previewRename, doRename, undoRename, imgUrl } from '../api/client';
+import { previewRename, doRename, imgUrl } from '../api/client';
 import type { EpisodeMatch, SeasonDetails, MovieDetails } from '../api/client';
 import { Poster } from './Poster';
 import { RemuxModal } from './RemuxModal';
 import { SubtitleModal } from './SubtitleModal';
+import { UndoModal } from './UndoModal';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   seasonDetails: SeasonDetails | null;
   movieDetails: MovieDetails | null;
   pattern: string;
+  onRenameSuccess?: () => void;
 }
 
 function scoreColor(score: number, hasFile: boolean): {
@@ -40,7 +42,7 @@ function scoreColor(score: number, hasFile: boolean): {
   };
 }
 
-export function RenamePanel({ showId, seasonNum, movieId, seasonPath, seasonDetails, movieDetails, pattern }: Props) {
+export function RenamePanel({ showId, seasonNum, movieId, seasonPath, seasonDetails, movieDetails, pattern, onRenameSuccess }: Props) {
   const isMovie = movieId !== null;
   const [episodes, setEpisodes] = useState<EpisodeMatch[]>([]);
   const [mode, setMode] = useState<'numeric' | 'title'>('numeric');
@@ -49,6 +51,7 @@ export function RenamePanel({ showId, seasonNum, movieId, seasonPath, seasonDeta
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingRename, setLoadingRename] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
+  const [showUndo, setShowUndo] = useState(false);
   const [showRemux, setShowRemux] = useState(false);
   const [showSubtitles, setShowSubtitles] = useState(false);
   const [subtitlesVisible, setSubtitlesVisible] = useState(false);
@@ -104,6 +107,7 @@ export function RenamePanel({ showId, seasonNum, movieId, seasonPath, seasonDeta
         toast.success(`Renamed ${result.renamed.length} file(s)`);
       }
       if (result.can_undo) setCanUndo(true);
+      onRenameSuccess?.();
       fetchPreview();
     } catch {
       toast.error('Rename failed');
@@ -112,16 +116,6 @@ export function RenamePanel({ showId, seasonNum, movieId, seasonPath, seasonDeta
     }
   };
 
-  const handleUndo = async () => {
-    try {
-      const result = await undoRename();
-      toast.success(`Restored ${result.restored.length} file(s)`);
-      setCanUndo(false);
-      fetchPreview();
-    } catch {
-      toast.error('Nothing to undo');
-    }
-  };
 
   const greenCount = episodes.filter(e => e.score > 90 && e.old_file).length;
   const yellowCount = episodes.filter(e => e.score > 50 && e.score <= 90 && e.old_file).length;
@@ -327,7 +321,7 @@ export function RenamePanel({ showId, seasonNum, movieId, seasonPath, seasonDeta
         <div className="ml-auto flex items-center gap-2">
           {canUndo && (
             <button
-              onClick={handleUndo}
+              onClick={() => setShowUndo(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors"
               style={{ background: 'var(--bg-600)', color: 'var(--text-secondary)' }}
             >
@@ -372,6 +366,17 @@ export function RenamePanel({ showId, seasonNum, movieId, seasonPath, seasonDeta
         </div>
       </div>
 
+      {showUndo && (
+        <UndoModal
+          onClose={() => setShowUndo(false)}
+          onConfirm={(count) => {
+            setShowUndo(false);
+            setCanUndo(false);
+            toast.success(`Restored ${count} file${count !== 1 ? 's' : ''}`);
+            fetchPreview();
+          }}
+        />
+      )}
       {showRemux && seasonPath && (
         <RemuxModal folderPath={seasonPath} onClose={() => setShowRemux(false)} />
       )}

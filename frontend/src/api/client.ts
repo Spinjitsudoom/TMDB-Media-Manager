@@ -19,7 +19,17 @@ export interface SeasonDetails {
 }
 export interface Episode { name: string; num: number }
 export interface RenamePair { old: string; new: string }
-export interface Config { api_key: string; path: string; pattern: string; theme: string }
+export interface CustomTheme { name: string; bg: string; accent: string }
+
+export interface Config {
+  api_key: string; path: string; pattern: string; theme: string;
+  whisper_model: string; whisper_language: string; whisper_beam_size: number; whisper_vad: boolean;
+  custom_themes: CustomTheme[];
+  tv_template: string;
+  movie_template: string;
+  tv_path: string;
+  movie_path: string;
+}
 
 /** One row in the preview — always one per TMDB episode */
 export interface EpisodeMatch {
@@ -34,7 +44,8 @@ export interface EpisodeMatch {
 export const getConfig = () => api.get<Config>('/config').then(r => r.data);
 export const saveConfig = (data: Partial<Config>) => api.post<Config>('/config', data).then(r => r.data);
 
-export const getLibrary = () => api.get<LibraryEntry[]>('/library').then(r => r.data);
+export const getLibrary = (path?: string) =>
+  api.get<LibraryEntry[]>('/library', path ? { params: { path } } : {}).then(r => r.data);
 export const getSeasonFolders = (folder: string) =>
   api.get<SeasonFolder[]>('/library/seasons', { params: { folder } }).then(r => r.data);
 export const getFiles = (folder: string) =>
@@ -63,14 +74,80 @@ export const previewRename = (payload: {
 export const doRename = (season_path: string, pairs: RenamePair[]) =>
   api.post<{ renamed: string[]; errors: string[]; can_undo: boolean }>('/rename', { season_path, pairs }).then(r => r.data);
 
+export interface UndoPair { current: string; original: string }
+export const getUndoPreview = () =>
+  api.get<{ pairs: UndoPair[] }>('/undo/preview').then(r => r.data);
+
 export const undoRename = () =>
   api.post<{ restored: string[]; errors: string[] }>('/undo').then(r => r.data);
 
 export const checkFFmpeg = () =>
   api.get<{ available: boolean }>('/remux/check').then(r => r.data);
 
+export interface AudioTrackInfo {
+  position: number;
+  stream_index: number | null;
+  language: string | null;
+  title: string | null;
+}
+
+export interface FileAudioTracks {
+  file: string;
+  tracks: AudioTrackInfo[];
+  subtitle_tracks: AudioTrackInfo[];
+}
+
+export const getAudioTracks = (folderPath: string, files: string[]) =>
+  api.post<{ files: FileAudioTracks[]; max_audio_tracks: number; max_subtitle_tracks: number }>('/remux/audio-tracks', {
+    folder_path: folderPath,
+    files,
+  }).then(r => r.data);
+
 export const checkWhisper = () =>
   api.get<{ available: boolean; models: string[] }>('/whisper/check').then(r => r.data);
 
+export interface Preset {
+  id: string;
+  name: string;
+  type: 'remux' | 'subtitles';
+  settings: Record<string, unknown>;
+}
+
+export const getPresets = (type: 'remux' | 'subtitles') =>
+  api.get<Preset[]>('/presets', { params: { type } }).then(r => r.data);
+
+export const savePreset = (name: string, type: 'remux' | 'subtitles', settings: Record<string, unknown>) =>
+  api.post<Preset[]>('/presets', { name, type, settings }).then(r => r.data);
+
+export const deletePreset = (id: string) =>
+  api.delete<Preset[]>(`/presets/${id}`).then(r => r.data);
+
 export const imgUrl = (path: string | null, size = 'w342') =>
   path ? `http://127.0.0.1:8765/api/image?path=${encodeURIComponent(path)}&size=${size}` : null;
+
+// Match history
+export interface MatchHistory { type: 'tv' | 'movie'; id: number; name: string; season_num?: number }
+export const getMatchHistory = (folder: string) =>
+  api.get<MatchHistory>('/match-history', { params: { folder } }).then(r => r.data);
+export const saveMatchHistory = (body: { folder_path: string; type: string; id: number; name: string; season_num?: number }) =>
+  api.post('/match-history', body).then(r => r.data);
+export const deleteMatchHistory = (folder: string) =>
+  api.delete('/match-history', { params: { folder } }).then(r => r.data);
+
+// FFmpeg validation
+export interface FileValidation {
+  file: string; error?: string; container?: string;
+  duration?: number; size?: number;
+  video?: Array<{ position: number; codec: string | null; language: string | null; title: string | null }>;
+  audio?: Array<{ position: number; codec: string | null; language: string | null; title: string | null }>;
+  subtitles?: Array<{ position: number; codec: string | null; language: string | null; title: string | null }>;
+  warnings?: string[];
+}
+export const validateFiles = (folderPath: string, files: string[]) =>
+  api.post<{ files: FileValidation[] }>('/remux/validate', { folder_path: folderPath, files }).then(r => r.data);
+
+// Updates & config import/export
+export const checkUpdates = () =>
+  api.get<{ latest_tag: string | null; url: string | null; name: string | null }>('/updates/check').then(r => r.data);
+export const importConfig = (data: Record<string, unknown>) =>
+  api.post<Config>('/config/import', { data }).then(r => r.data);
